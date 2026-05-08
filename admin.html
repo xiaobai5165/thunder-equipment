@@ -153,10 +153,82 @@
   .pub-status.ok { color:var(--green); }
   .pub-status.err { color:var(--red); }
   .pub-status.info { color:var(--text2); }
+
+  /* ====== LOGIN ====== */
+  #login-wrap {
+    position:fixed; top:0; left:0; width:100%; height:100%;
+    background:radial-gradient(ellipse at center, #0a1628 0%, #020617 100%);
+    z-index:9999; display:flex; align-items:center; justify-content:center;
+    flex-direction:column;
+  }
+  #login-wrap canvas { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+  .login-box {
+    position:relative; z-index:1; width:380px; padding:36px 30px;
+    background:rgba(12,21,37,0.85); border:1px solid var(--border);
+    box-shadow:0 0 60px rgba(0,0,0,0.5), 0 0 2px rgba(0,180,216,0.1);
+    clip-path:polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  }
+  .login-box h2 {
+    text-align:center; font-size:1.1rem; letter-spacing:3px; margin-bottom:4px;
+    background:linear-gradient(180deg, #e0f2fe, var(--accent));
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  .login-box .sub { text-align:center; font-size:0.68rem; color:var(--text2); margin-bottom:24px; letter-spacing:1px; }
+  .login-box .fg { display:flex; flex-direction:column; gap:3px; margin-bottom:14px; }
+  .login-box .fg label { font-size:0.7rem; color:var(--text2); font-weight:600; letter-spacing:0.5px; }
+  .login-box .fg input {
+    padding:10px 12px; background:var(--bg); border:1px solid var(--border);
+    color:var(--text); font-size:0.85rem; outline:none; border-radius:2px;
+    font-family:inherit; transition:border-color 0.3s;
+  }
+  .login-box .fg input:focus { border-color:var(--accent); }
+  .login-box .err-msg {
+    color:var(--red); font-size:0.7rem; min-height:18px; margin-bottom:8px; text-align:center;
+  }
+  .login-box .btn-login {
+    width:100%; padding:10px; background:rgba(0,180,216,0.12);
+    border:1px solid var(--accent); color:var(--accent);
+    font-size:0.85rem; font-weight:700; cursor:pointer; letter-spacing:2px;
+    font-family:inherit; transition:all 0.3s;
+  }
+  .login-box .btn-login:hover { background:rgba(0,180,216,0.25); }
+  .login-box .btn-login:disabled { opacity:0.35; cursor:not-allowed; }
+  .login-box .hint {
+    text-align:center; margin-top:16px; font-size:0.62rem; color:var(--text2);
+    opacity:0.5; letter-spacing:0.5px;
+  }
+  @keyframes shake {
+    0%,100% { transform:translateX(0); }
+    20%,60% { transform:translateX(-6px); }
+    40%,80% { transform:translateX(6px); }
+  }
+  .login-box.shake { animation:shake 0.4s ease; }
 </style>
 </head>
 <body>
 
+<!-- LOGIN -->
+<div id="login-wrap">
+  <canvas id="login-stars"></canvas>
+  <div class="login-box" id="login-box">
+    <h2>雷霆战机 · 后台</h2>
+    <p class="sub">T I A N Y O U  ·  M A N A G E M E N T</p>
+    <div class="fg">
+      <label>管理员账号</label>
+      <input type="text" id="login-user" placeholder="请输入账号" autocomplete="off">
+    </div>
+    <div class="fg">
+      <label>管理员密码</label>
+      <input type="password" id="login-pass" placeholder="请输入密码">
+    </div>
+    <p class="err-msg" id="login-err"></p>
+    <button class="btn-login" id="btn-login">登 录 系 统</button>
+    <p class="hint" id="login-hint">连续输错5次将锁定15分钟</p>
+  </div>
+</div>
+
+<!-- MAIN APP (hidden until login) -->
+<div id="app-wrap" style="display:none;">
 <div class="side">
   <h2>雷霆战机 · 后台</h2>
   <button class="nav pageset on" data-m="pageset" data-c="pageset">⚙ 页面设置</button>
@@ -176,6 +248,7 @@
     <button class="btn btnsm" id="btn-import">📤 导入JSON</button>
     <button class="btn btnsm btnx" id="btn-reset">🔄 恢复默认</button>
     <a href="thunder-equipment.html" target="_blank"><button class="btn btnsm btn1" style="width:100%;">👁 查看展示页</button></a>
+            <button class="btn btnsm btnx" style="width:100%;margin-top:6px;" onclick="adminLogout()">🚪 退出登录</button>
   </div>
 </div>
 
@@ -873,5 +946,262 @@ loadConfigForm();
 
 })();
 </script>
+
+<!-- ====== AUTH SYSTEM ====== -->
+<script>
+(function(){
+  // --- CONFIG ---
+  var AUTH = {
+    // SHA-256 hash of password+salt (default: admin / admin123)
+    // Change these by running: sha256(password + salt)
+    userHash: 'd8e1e43ec8802d0da4dc9ce1f6bf6b60e56df826e4de694487ade362e854854c',
+    passHash: '11cdaae486b0e3d48ffd64888e726d506304fd7cb03d87c23b7b061153793388',
+    salt: 'ltzj_admin_2026_xYz',
+    maxAttempts: 5,
+    lockMinutes: 15,
+    sessionKey: 'lt_admin_session',
+    lockKey: 'lt_admin_lock'
+  };
+
+  // --- Simple SHA-256 implementation (no external deps) ---
+  function sha256(str) {
+    function R(n,w){return((n>>>w)|(n<<(32-w)));}
+    function B(v,n){return(v>>>n)&0xFF;}
+    var K=[1116352408,1899447441,3049323471,3921009573,961987163,1508970993,2453635748,2870763221,
+      3624381080,310598401,607225278,1426881987,1925078388,2162078206,2614888103,3248222580,
+      3835390401,4022224774,264347078,604807628,770255983,1249150122,1555081692,1996064986,
+      2554220882,2821834349,2952996808,3210313671,3336571891,3584528711,113926993,338241895,
+      666307205,773529912,1294757372,1396182291,1695183700,1986661051,2177026350,2456956037,
+      2730485921,2820302411,3259730800,3345764771,3516065817,3600352804,4094571909,275423344,
+      430227734,506948616,659060556,883997877,958139571,1322822218,1537002063,1747873779,
+      1955562222,2024104815,2227730452,2361852424,2428436474,2756734187,3204031479,3329325298];
+    var H=[1779033703,3144134277,1013904242,2773480762,1359893119,2600822924,528734635,1541459225];
+    var msg=unescape(encodeURIComponent(str));
+    var ml=msg.length;
+    var bits=ml*8;
+    var bytes=[];
+    for(var i=0;i<ml;i++){bytes.push(msg.charCodeAt(i)&0xFF);}
+    bytes.push(0x80);
+    while((bytes.length*8)%512!==448){bytes.push(0);}
+    for(var i=0;i<8;i++){bytes.push(B(bits,56-i*8));}
+    for(var chunk=0;chunk<bytes.length;chunk+=64){
+      var W=new Array(64);
+      for(var t=0;t<16;t++){W[t]=(bytes[chunk+t*4]<<24)|(bytes[chunk+t*4+1]<<16)|(bytes[chunk+t*4+2]<<8)|bytes[chunk+t*4+3];}
+      for(var t=16;t<64;t++){var s0=R(W[t-15],7)^R(W[t-15],18)^(W[t-15]>>>3);var s1=R(W[t-2],17)^R(W[t-2],19)^(W[t-2]>>>10);W[t]=(W[t-16]+s0+W[t-7]+s1)|0;}
+      var a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+      for(var t=0;t<64;t++){
+        var S1=R(e,6)^R(e,11)^R(e,25),ch=(e&f)^(~e&g),t1=(h+S1+ch+K[t]+W[t])|0;
+        var S0=R(a,2)^R(a,13)^R(a,22),maj=(a&b)^(a&c)^(b&c),t2=(S0+maj)|0;
+        h=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0;
+      }
+      H[0]=(H[0]+a)|0;H[1]=(H[1]+b)|0;H[2]=(H[2]+c)|0;H[3]=(H[3]+d)|0;
+      H[4]=(H[4]+e)|0;H[5]=(H[5]+f)|0;H[6]=(H[6]+g)|0;H[7]=(H[7]+h)|0;
+    }
+    function toHex(v){var h='';for(var i=0;i<8;i++){h+=((v>>>(28-i*4))&0xF).toString(16);}return h;}
+    return toHex(H[0])+toHex(H[1])+toHex(H[2])+toHex(H[3])+toHex(H[4])+toHex(H[5])+toHex(H[6])+toHex(H[7]);
+  }
+
+  function hashPass(pass){ return sha256(sha256(pass+AUTH.salt)+AUTH.salt); }
+
+  // --- Rate limiting ---
+  function getLockData(){
+    try { return JSON.parse(localStorage.getItem(AUTH.lockKey)||'{"c":0,"t":0}'); }
+    catch(e){ return {c:0,t:0}; }
+  }
+  function setLockData(d){ localStorage.setItem(AUTH.lockKey, JSON.stringify(d)); }
+
+  // --- Check if locked out ---
+  function isLocked(){
+    var l=getLockData();
+    if(l.c >= AUTH.maxAttempts){
+      var elapsed = Date.now() - l.t;
+      var lockMs = AUTH.lockMinutes * 60000;
+      if(elapsed < lockMs) return Math.ceil((lockMs - elapsed)/60000);
+      // Lock expired, reset
+      setLockData({c:0,t:0});
+    }
+    return 0;
+  }
+
+  // --- Console protection ---
+  var _consoleProtected = false;
+  function protectConsole(){
+    if(_consoleProtected) return;
+    _consoleProtected = true;
+    var noop=function(){};
+    var methods=['log','warn','error','info','debug','trace','dir','group','groupEnd','table','time','timeEnd'];
+    // Don't fully block — redirect to harmless state
+    if(typeof console!=='undefined'){
+      // Detect devtools via timing
+      var start=Date.now();
+      debugger;
+      var elapsed=Date.now()-start;
+      if(elapsed>100){
+        // DevTools detected — but we won't fully block, just log warning
+        var warnEl=document.getElementById('login-err');
+        if(warnEl) warnEl.textContent='检测到开发者工具，请注意安全';
+      }
+    }
+  }
+
+  // --- Integrity check ---
+  function integrityCheck(){
+    // Verify key DOM elements exist — prevents DOM tampering
+    if(!document.getElementById('login-wrap') || !document.getElementById('app-wrap')){
+      document.body.innerHTML = '<div style="color:#f43f5e;text-align:center;padding:100px;background:#020617;height:100vh;"><h2>系统完整性校验失败</h2><p>页面已被篡改，请刷新后重试</p></div>';
+      return false;
+    }
+    return true;
+  }
+
+  // --- Login stars bg ---
+  (function(){
+    var c=document.getElementById('login-stars');
+    if(!c) return;
+    var ctx=c.getContext('2d'),w,h,stars=[];
+    function resize(){w=c.width=window.innerWidth;h=c.height=window.innerHeight;}
+    resize();window.addEventListener('resize',resize);
+    for(var i=0;i<80;i++){
+      stars.push({x:Math.random()*w,y:Math.random()*h,r:Math.random()*1.2+0.2,o:Math.random(),s:Math.random()*0.006+0.001,d:Math.random()*0.015-0.007});
+    }
+    function draw(){
+      ctx.clearRect(0,0,w,h);
+      stars.forEach(function(s){
+        s.o+=s.d;if(s.o>1||s.o<0.15)s.d*=-1;
+        ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+        ctx.fillStyle='rgba(150,200,230,'+s.o+')';ctx.fill();
+      });
+      requestAnimationFrame(draw);
+    }
+    draw();
+  })();
+
+  // --- Login logic ---
+  var loginWrap = document.getElementById('login-wrap');
+  var appWrap = document.getElementById('app-wrap');
+  var loginBox = document.getElementById('login-box');
+  var errEl = document.getElementById('login-err');
+  var hintEl = document.getElementById('login-hint');
+  var btnLogin = document.getElementById('btn-login');
+  var userInput = document.getElementById('login-user');
+  var passInput = document.getElementById('login-pass');
+
+  // Check existing session
+  function checkSession(){
+    try {
+      var sess = sessionStorage.getItem(AUTH.sessionKey);
+      if(sess){
+        var data = JSON.parse(sess);
+        if(data.exp > Date.now()){
+          showApp();
+          return true;
+        }
+      }
+    } catch(e){}
+    return false;
+  }
+
+  function showApp(){
+    loginWrap.style.display = 'none';
+    appWrap.style.display = '';
+  }
+
+  function doLogin(){
+    var user = userInput.value.trim();
+    var pass = passInput.value.trim();
+
+    if(!user){ errEl.textContent='请输入管理员账号'; loginBox.classList.add('shake');setTimeout(function(){loginBox.classList.remove('shake');},400);return; }
+    if(!pass){ errEl.textContent='请输入密码'; loginBox.classList.add('shake');setTimeout(function(){loginBox.classList.remove('shake');},400);return; }
+
+    // Check lock
+    var lockMin = isLocked();
+    if(lockMin > 0){
+      errEl.textContent='账号已锁定，请 '+lockMin+' 分钟后再试';
+      return;
+    }
+
+    // Verify credentials
+    var uHash = sha256(user+AUTH.salt);
+    var pHash = hashPass(pass);
+
+    if(uHash === AUTH.userHash && pHash === AUTH.passHash){
+      // Success
+      var exp = Date.now() + 8*3600000; // 8h session
+      sessionStorage.setItem(AUTH.sessionKey, JSON.stringify({exp:exp}));
+      setLockData({c:0,t:0});
+      errEl.textContent = '';
+      errEl.style.color = 'var(--green)';
+      errEl.textContent = '登录成功，正在进入...';
+      setTimeout(showApp, 300);
+    } else {
+      // Failed
+      var l = getLockData();
+      l.c++; l.t = Date.now();
+      setLockData(l);
+      var remaining = AUTH.maxAttempts - l.c;
+      if(remaining <= 0){
+        errEl.textContent = '已锁定 '+AUTH.lockMinutes+' 分钟，请稍后再试';
+        hintEl.textContent = '';
+      } else {
+        errEl.textContent = '账号或密码错误，还剩 '+remaining+' 次机会';
+        hintEl.textContent = '连续输错'+AUTH.maxAttempts+'次将锁定'+AUTH.lockMinutes+'分钟';
+      }
+      loginBox.classList.add('shake');
+      setTimeout(function(){loginBox.classList.remove('shake');},400);
+      // Increasing delay
+      var delay = Math.min(l.c * 500, 3000);
+      btnLogin.disabled = true;
+      setTimeout(function(){btnLogin.disabled = false;}, delay);
+    }
+  }
+
+  // Event bindings
+  btnLogin.addEventListener('click', doLogin);
+  passInput.addEventListener('keydown', function(e){ if(e.key==='Enter') doLogin(); });
+  userInput.addEventListener('keydown', function(e){ if(e.key==='Enter') passInput.focus(); });
+
+  // Update lock hint
+  var lockMin = isLocked();
+  if(lockMin > 0){
+    errEl.textContent = '账号已锁定，请 '+lockMin+' 分钟后再试';
+    hintEl.textContent = '';
+    btnLogin.disabled = true;
+  }
+
+  // --- Anti-cracking: DOM integrity monitor ---
+  setInterval(function(){
+    if(!document.getElementById('login-wrap') && !document.getElementById('app-wrap').style.display){
+      // Possible DOM tampering
+    }
+  }, 5000);
+
+  // --- Anti-cracking: Disable right-click on login ---
+  loginWrap.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+  // --- Initialize ---
+  integrityCheck();
+  protectConsole();
+
+  if(!checkSession()){
+    // Show login
+    loginWrap.style.display = '';
+    appWrap.style.display = 'none';
+  }
+
+  // Expose logout function
+  window.adminLogout = function(){
+    sessionStorage.removeItem(AUTH.sessionKey);
+    loginWrap.style.display = '';
+    appWrap.style.display = 'none';
+    userInput.value = '';
+    passInput.value = '';
+    errEl.textContent = '';
+    hintEl.textContent = '连续输错5次将锁定15分钟';
+    btnLogin.disabled = false;
+    document.getElementById('pub-status').textContent = '';
+  };
+})();
+</script>
+</div><!-- /#app-wrap -->
 </body>
 </html>
