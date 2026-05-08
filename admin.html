@@ -1089,10 +1089,10 @@ loadConfigForm();
     } catch(e) {}
   })();
 
-  // --- Simple SHA-256 implementation (no external deps) ---
+  // --- SHA-256 implementation ---
   function sha256(str) {
     function R(n,w){return((n>>>w)|(n<<(32-w)));}
-    function B(v,n){return(v>>>n)&0xFF;}
+    function S(x,n){return x>>>n;} // Safe shift: handle n>=32
     var K=[1116352408,1899447441,3049323471,3921009573,961987163,1508970993,2453635748,2870763221,
       3624381080,310598401,607225278,1426881987,1925078388,2162078206,2614888103,3248222580,
       3835390401,4022224774,264347078,604807628,770255983,1249150122,1555081692,1996064986,
@@ -1104,12 +1104,15 @@ loadConfigForm();
     var H=[1779033703,3144134277,1013904242,2773480762,1359893119,2600822924,528734635,1541459225];
     var msg=unescape(encodeURIComponent(str));
     var ml=msg.length;
-    var bits=ml*8;
+    var bitsHi=Math.floor(ml/536870912); // ml*8 / 2^32 (high 32 bits of bit count)
+    var bitsLo=(ml*8)|0;                  // low 32 bits of bit count
     var bytes=[];
     for(var i=0;i<ml;i++){bytes.push(msg.charCodeAt(i)&0xFF);}
     bytes.push(0x80);
-    while((bytes.length*8)%512!==448){bytes.push(0);}
-    for(var i=0;i<8;i++){bytes.push(B(bits,56-i*8));}
+    while((bytes.length+8)%64!==0){bytes.push(0);}
+    // Append 64-bit big-endian length
+    for(var i=0;i<4;i++){bytes.push((bitsHi>>>(24-i*8))&0xFF);}
+    for(var i=0;i<4;i++){bytes.push((bitsLo>>>(24-i*8))&0xFF);}
     for(var chunk=0;chunk<bytes.length;chunk+=64){
       var W=new Array(64);
       for(var t=0;t<16;t++){W[t]=(bytes[chunk+t*4]<<24)|(bytes[chunk+t*4+1]<<16)|(bytes[chunk+t*4+2]<<8)|bytes[chunk+t*4+3];}
