@@ -360,7 +360,7 @@
     <div class="setsec">
       <h4>GitHub 发布配置</h4>
       <div class="setgrid">
-        <div class="fg ffull"><label>GitHub Personal Access Token</label><input type="password" id="cfg-gh-token" placeholder="ghp_xxxxxxxxxxxx（仅存储在浏览器会话中）"></div>
+        <div class="fg ffull"><label>GitHub Personal Access Token</label><input type="password" id="cfg-gh-token" placeholder="ghp_xxxxxxxxxxxx（加密永久保存，无需重复输入）"></div>
         <div class="fg"><label>仓库所有者</label><input type="text" id="cfg-gh-owner" value="xiaobai5165"></div>
         <div class="fg"><label>仓库名</label><input type="text" id="cfg-gh-repo" value="thunder-equipment"></div>
       </div>
@@ -420,6 +420,28 @@ function toast(msg, type) {
   document.body.appendChild(t);
   setTimeout(function(){ t.remove(); }, 3000);
 }
+
+// Simple token encryption (XOR + Base64) — prevents casual localStorage inspection
+var TOKEN_KEY = 'ltzj_2026_xor_key_sEcUrE';
+function encryptToken(plain) {
+  var result = '';
+  for (var i = 0; i < plain.length; i++) {
+    result += String.fromCharCode(plain.charCodeAt(i) ^ TOKEN_KEY.charCodeAt(i % TOKEN_KEY.length));
+  }
+  return btoa(result);
+}
+function decryptToken(enc) {
+  try {
+    var data = atob(enc);
+    var result = '';
+    for (var i = 0; i < data.length; i++) {
+      result += String.fromCharCode(data.charCodeAt(i) ^ TOKEN_KEY.charCodeAt(i % TOKEN_KEY.length));
+    }
+    return result;
+  } catch(e) { return ''; }
+}
+function getToken() { try { return decryptToken(localStorage.getItem('lt_gh_token_enc')); } catch(e) {} return ''; }
+function saveToken(t) { if (t) localStorage.setItem('lt_gh_token_enc', encryptToken(t)); }
 
 function getConfig() {
   try { var s = localStorage.getItem('lt_page_config'); if (s) return JSON.parse(s); } catch(e) {}
@@ -482,7 +504,7 @@ function loadConfigForm() {
   document.getElementById('cfg-footer-line2').value = (cfg.footer && cfg.footer.line2) || '';
 
   // GitHub config
-  document.getElementById('cfg-gh-token').value = sessionStorage.getItem('lt_gh_token') || '';
+  document.getElementById('cfg-gh-token').value = getToken();
   document.getElementById('cfg-gh-owner').value = localStorage.getItem('lt_gh_owner') || 'xiaobai5165';
   document.getElementById('cfg-gh-repo').value = localStorage.getItem('lt_gh_repo') || 'thunder-equipment';
 }
@@ -531,7 +553,7 @@ function saveConfigForm() {
 
   // Save GitHub config
   var token = document.getElementById('cfg-gh-token').value.trim();
-  if (token) sessionStorage.setItem('lt_gh_token', token);
+  saveToken(token);
   localStorage.setItem('lt_gh_owner', document.getElementById('cfg-gh-owner').value.trim());
   localStorage.setItem('lt_gh_repo', document.getElementById('cfg-gh-repo').value.trim());
 
@@ -667,10 +689,10 @@ function getEquipDataForExport(t) {
 
 // ====== PUBLISH TO GITHUB (shared) ======
 function publishToGithub() {
-  var token = sessionStorage.getItem('lt_gh_token') || document.getElementById('cfg-gh-token').value.trim();
+  var token = getToken() || document.getElementById('cfg-gh-token').value.trim();
   if (!token) return; // Silently skip if no token configured
 
-  sessionStorage.setItem('lt_gh_token', token);
+  saveToken(token);
   var owner = document.getElementById('cfg-gh-owner').value.trim() || 'xiaobai5165';
   var repo = document.getElementById('cfg-gh-repo').value.trim() || 'thunder-equipment';
   localStorage.setItem('lt_gh_owner', owner);
@@ -719,7 +741,7 @@ function publishToGithub() {
 
 // Manual publish button (kept for explicit manual sync)
 document.getElementById('btn-publish').addEventListener('click', function(){
-  var token = sessionStorage.getItem('lt_gh_token') || document.getElementById('cfg-gh-token').value.trim();
+  var token = getToken() || document.getElementById('cfg-gh-token').value.trim();
   if (!token) { toast('请先在页面设置中填写 GitHub Token', 'err'); return; }
   saveConfigForm();
   publishToGithub();
