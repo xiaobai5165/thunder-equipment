@@ -540,7 +540,10 @@ function saveConfigForm() {
   toast('页面设置已保存');
 }
 
-document.getElementById('btn-save-config').addEventListener('click', saveConfigForm);
+document.getElementById('btn-save-config').addEventListener('click', function(){
+  saveConfigForm();
+  publishToGithub();
+});
 
 // ====== CREDENTIAL MANAGEMENT ======
 var CRED_KEY = 'lt_admin_creds';
@@ -662,28 +665,24 @@ function getEquipDataForExport(t) {
   return {};
 }
 
-// ====== PUBLISH TO GITHUB ======
-document.getElementById('btn-publish').addEventListener('click', function(){
+// ====== PUBLISH TO GITHUB (shared) ======
+function publishToGithub() {
   var token = sessionStorage.getItem('lt_gh_token') || document.getElementById('cfg-gh-token').value.trim();
-  if (!token) { toast('请先在页面设置中填写 GitHub Token', 'err'); return; }
-  sessionStorage.setItem('lt_gh_token', token);
+  if (!token) return; // Silently skip if no token configured
 
+  sessionStorage.setItem('lt_gh_token', token);
   var owner = document.getElementById('cfg-gh-owner').value.trim() || 'xiaobai5165';
   var repo = document.getElementById('cfg-gh-repo').value.trim() || 'thunder-equipment';
   localStorage.setItem('lt_gh_owner', owner);
   localStorage.setItem('lt_gh_repo', repo);
 
   var statusEl = document.getElementById('pub-status');
-  statusEl.textContent = '正在发布...';
+  statusEl.textContent = '正在同步到网站...';
   statusEl.className = 'pub-status info';
-
-  // Save config first
-  saveConfigForm();
 
   var content = generateDataJS();
   var b64 = btoa(unescape(encodeURIComponent(content)));
 
-  // Get current file SHA first (needed for update)
   var apiUrl = 'https://api.github.com/repos/'+owner+'/'+repo+'/contents/data.js';
 
   fetch(apiUrl, {
@@ -692,7 +691,7 @@ document.getElementById('btn-publish').addEventListener('click', function(){
   .then(function(r){ return r.json(); })
   .then(function(data){
     var body = {
-      message: '更新数据文件 [后台发布]',
+      message: '更新数据文件 [后台自动同步]',
       content: b64,
       branch: 'main'
     };
@@ -709,15 +708,22 @@ document.getElementById('btn-publish').addEventListener('click', function(){
     return r.json();
   })
   .then(function(){
-    statusEl.textContent = '发布成功！1-2分钟后生效';
+    statusEl.textContent = '已同步 ✓';
     statusEl.className = 'pub-status ok';
-    toast('已发布到 GitHub Pages！稍等1-2分钟即可在网站看到更新');
   })
   .catch(function(err){
-    statusEl.textContent = '发布失败: '+err.message;
+    statusEl.textContent = '同步失败: '+err.message;
     statusEl.className = 'pub-status err';
-    toast('发布失败: '+err.message, 'err');
   });
+}
+
+// Manual publish button (kept for explicit manual sync)
+document.getElementById('btn-publish').addEventListener('click', function(){
+  var token = sessionStorage.getItem('lt_gh_token') || document.getElementById('cfg-gh-token').value.trim();
+  if (!token) { toast('请先在页面设置中填写 GitHub Token', 'err'); return; }
+  saveConfigForm();
+  publishToGithub();
+  toast('已发布到 GitHub Pages！稍等1-2分钟即可在网站看到更新');
 });
 
 // ====== RENDER EQUIP TABLE ======
@@ -967,6 +973,7 @@ document.getElementById('btn-save').addEventListener('click', function(){
   closeModal();
   renderTable();
   toast(editIdx >= 0 ? '装备已更新' : '装备已添加');
+  publishToGithub();
 });
 
 // ====== TABLE ACTIONS ======
@@ -986,6 +993,7 @@ document.getElementById('tbody').addEventListener('click', function(e){
     saveEquipData(all);
     renderTable();
     toast('装备已删除');
+    publishToGithub();
   }
 });
 
@@ -1035,6 +1043,7 @@ document.getElementById('import-file').addEventListener('change', function(e){
       if (data.god) localStorage.setItem('lt_equip_god', JSON.stringify(data.god));
       if (mode === 'pageset') { loadConfigForm(); } else { renderTable(); }
       toast('数据导入成功！');
+      publishToGithub();
     } catch(err){ toast('JSON 格式错误', 'err'); }
   };
   reader.readAsText(file);
@@ -1050,6 +1059,7 @@ document.getElementById('btn-reset').addEventListener('click', function(){
   window.PAGE_CONFIG = JSON.parse(JSON.stringify(DEF_CONFIG));
   if (mode === 'pageset') { loadConfigForm(); } else { renderTable(); }
   toast('已恢复默认数据（含账号密码）');
+  publishToGithub();
 });
 
 // ====== INIT ======
