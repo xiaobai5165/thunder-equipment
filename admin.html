@@ -342,6 +342,22 @@
       </div>
     </div>
     <div class="setsec">
+      <h4>修改管理员账号密码</h4>
+      <div class="setgrid">
+        <div class="fg ffull"><label>当前密码 *</label><input type="password" id="cfg-cred-cur" placeholder="验证身份，请输入当前密码"></div>
+        <div class="fg"><label>新账号</label><input type="text" id="cfg-cred-user" placeholder="留空则不修改账号"></div>
+        <div class="fg"><label>新密码</label><input type="password" id="cfg-cred-pass" placeholder="留空则不修改密码"></div>
+        <div class="fg ffull"><label>确认新密码</label><input type="password" id="cfg-cred-pass2" placeholder="再次输入新密码"></div>
+        <div class="fg ffull" style="margin-top:4px;">
+          <span id="cred-status" style="font-size:0.7rem;color:var(--text2);">默认账号: admin / 密码: admin123</span>
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn btng" id="btn-save-cred">🔐 保存密码修改</button>
+        <button class="btn btnx" id="btn-reset-cred" style="margin-left:6px;">🔄 恢复默认账号密码</button>
+      </div>
+    </div>
+    <div class="setsec">
       <h4>GitHub 发布配置</h4>
       <div class="setgrid">
         <div class="fg ffull"><label>GitHub Personal Access Token</label><input type="password" id="cfg-gh-token" placeholder="ghp_xxxxxxxxxxxx（仅存储在浏览器会话中）"></div>
@@ -525,6 +541,100 @@ function saveConfigForm() {
 }
 
 document.getElementById('btn-save-config').addEventListener('click', saveConfigForm);
+
+// ====== CREDENTIAL MANAGEMENT ======
+var CRED_KEY = 'lt_admin_creds';
+var DEFAULT_CREDS = {
+  userHash: 'd8e1e43ec8802d0da4dc9ce1f6bf6b60e56df826e4de694487ade362e854854c',
+  passHash: '11cdaae486b0e3d48ffd64888e726d506304fd7cb03d87c23b7b061153793388',
+  salt: 'ltzj_admin_2026_xYz'
+};
+
+function getSavedCreds() {
+  try {
+    var s = localStorage.getItem(CRED_KEY);
+    if (s) return JSON.parse(s);
+  } catch(e) {}
+  return null;
+}
+
+function saveCredsToStorage(creds) {
+  localStorage.setItem(CRED_KEY, JSON.stringify(creds));
+}
+
+document.getElementById('btn-save-cred').addEventListener('click', function(){
+  var curPass = document.getElementById('cfg-cred-cur').value.trim();
+  var newUser = document.getElementById('cfg-cred-user').value.trim();
+  var newPass = document.getElementById('cfg-cred-pass').value.trim();
+  var newPass2 = document.getElementById('cfg-cred-pass2').value.trim();
+  var statusEl = document.getElementById('cred-status');
+
+  if (!curPass) {
+    statusEl.innerHTML = '<span style="color:var(--red);">请输入当前密码以验证身份</span>';
+    return;
+  }
+
+  // Get current auth config (from localStorage or defaults)
+  var saved = getSavedCreds();
+  var curSalt = saved ? saved.salt : DEFAULT_CREDS.salt;
+  var curPassHash = saved ? saved.passHash : DEFAULT_CREDS.passHash;
+
+  // Verify current password (need to access sha256 from auth scope — we use the global reference)
+  var inputHash = window._adminHashPass ? window._adminHashPass(curPass, curSalt) : '';
+  if (!inputHash || inputHash !== curPassHash) {
+    statusEl.innerHTML = '<span style="color:var(--red);">当前密码错误，无法修改</span>';
+    document.getElementById('cfg-cred-cur').style.borderColor = 'var(--red)';
+    setTimeout(function(){ document.getElementById('cfg-cred-cur').style.borderColor = ''; }, 2000);
+    return;
+  }
+
+  if (!newUser && !newPass) {
+    statusEl.innerHTML = '<span style="color:var(--text2);">未做任何修改</span>';
+    return;
+  }
+
+  if (newPass && newPass !== newPass2) {
+    statusEl.innerHTML = '<span style="color:var(--red);">两次输入的新密码不一致</span>';
+    return;
+  }
+
+  if (newPass && newPass.length < 4) {
+    statusEl.innerHTML = '<span style="color:var(--red);">新密码长度不能少于4位</span>';
+    return;
+  }
+
+  // Keep the same salt to avoid recomputation issues (salt stays fixed)
+  var curSalt = saved ? saved.salt : DEFAULT_CREDS.salt;
+  var curUserHash = saved ? saved.userHash : DEFAULT_CREDS.userHash;
+  var curPassHash = saved ? saved.passHash : DEFAULT_CREDS.passHash;
+  var creds = {
+    userHash: newUser ? window._adminHashUser(newUser, curSalt) : curUserHash,
+    passHash: newPass ? window._adminHashPass(newPass, curSalt) : curPassHash,
+    salt: curSalt
+  };
+
+  saveCredsToStorage(creds);
+
+  // Clear form
+  document.getElementById('cfg-cred-cur').value = '';
+  document.getElementById('cfg-cred-user').value = '';
+  document.getElementById('cfg-cred-pass').value = '';
+  document.getElementById('cfg-cred-pass2').value = '';
+
+  statusEl.innerHTML = '<span style="color:var(--green);">账号密码已更新！请牢记新账号密码</span>';
+  toast('账号密码修改成功！下次登录请使用新账号密码');
+});
+
+document.getElementById('btn-reset-cred').addEventListener('click', function(){
+  if (!confirm('确定恢复为默认账号密码吗？\n默认账号: admin\n默认密码: admin123')) return;
+  localStorage.removeItem(CRED_KEY);
+  document.getElementById('cfg-cred-cur').value = '';
+  document.getElementById('cfg-cred-user').value = '';
+  document.getElementById('cfg-cred-pass').value = '';
+  document.getElementById('cfg-cred-pass2').value = '';
+  document.getElementById('cred-status').innerHTML = '<span style="color:var(--green);">已恢复为默认账号密码 (admin / admin123)</span>';
+  toast('已恢复默认账号密码');
+});
 
 // ====== GENERATE data.js CONTENT ======
 function generateDataJS() {
@@ -936,9 +1046,10 @@ document.getElementById('btn-reset').addEventListener('click', function(){
   localStorage.removeItem('lt_page_config');
   localStorage.removeItem('lt_equip_star5');
   localStorage.removeItem('lt_equip_god');
+  localStorage.removeItem('lt_admin_creds');
   window.PAGE_CONFIG = JSON.parse(JSON.stringify(DEF_CONFIG));
   if (mode === 'pageset') { loadConfigForm(); } else { renderTable(); }
-  toast('已恢复默认数据');
+  toast('已恢复默认数据（含账号密码）');
 });
 
 // ====== INIT ======
@@ -953,7 +1064,7 @@ loadConfigForm();
   // --- CONFIG ---
   var AUTH = {
     // SHA-256 hash of password+salt (default: admin / admin123)
-    // Change these by running: sha256(password + salt)
+    // These are factory defaults — overridden by localStorage if user changed credentials
     userHash: 'd8e1e43ec8802d0da4dc9ce1f6bf6b60e56df826e4de694487ade362e854854c',
     passHash: '11cdaae486b0e3d48ffd64888e726d506304fd7cb03d87c23b7b061153793388',
     salt: 'ltzj_admin_2026_xYz',
@@ -962,6 +1073,21 @@ loadConfigForm();
     sessionKey: 'lt_admin_session',
     lockKey: 'lt_admin_lock'
   };
+
+  // Load credential overrides from localStorage (set via page settings UI)
+  (function(){
+    try {
+      var saved = localStorage.getItem('lt_admin_creds');
+      if (saved) {
+        var creds = JSON.parse(saved);
+        if (creds.userHash && creds.passHash && creds.salt) {
+          AUTH.userHash = creds.userHash;
+          AUTH.passHash = creds.passHash;
+          AUTH.salt = creds.salt;
+        }
+      }
+    } catch(e) {}
+  })();
 
   // --- Simple SHA-256 implementation (no external deps) ---
   function sha256(str) {
@@ -1001,7 +1127,13 @@ loadConfigForm();
     return toHex(H[0])+toHex(H[1])+toHex(H[2])+toHex(H[3])+toHex(H[4])+toHex(H[5])+toHex(H[6])+toHex(H[7]);
   }
 
-  function hashPass(pass){ return sha256(sha256(pass+AUTH.salt)+AUTH.salt); }
+  function hashUser(user, s){ return sha256(user+(s||AUTH.salt)); }
+  function hashPass(pass, s){ var salt=s||AUTH.salt; return sha256(sha256(pass+salt)+salt); }
+
+  // Expose for credential modification UI
+  window._adminHashUser = hashUser;
+  window._adminHashPass = hashPass;
+  window._adminSha256 = sha256;
 
   // --- Rate limiting ---
   function getLockData(){
@@ -1121,7 +1253,7 @@ loadConfigForm();
     }
 
     // Verify credentials
-    var uHash = sha256(user+AUTH.salt);
+    var uHash = hashUser(user);
     var pHash = hashPass(pass);
 
     if(uHash === AUTH.userHash && pHash === AUTH.passHash){
